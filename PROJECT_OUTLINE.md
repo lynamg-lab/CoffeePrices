@@ -251,21 +251,21 @@ Alternatively: schedule a local Windows Task Scheduler job or use `cron` on a cl
 
 ---
 
-## 8. Staged Implementation Plan (Git Branch Strategy)
+## 8. Phased Implementation Plan (Git Branch Strategy)
 
-The project is built incrementally across two git branches, each a self-contained, demo-ready milestone. Branch **stage-2** inherits all code from stage-1 and extends it — no rework needed.
+The project is built incrementally across two git branches, each a self-contained, demo-ready milestone. Branch **phase-2** inherits all code from phase-1 and extends it — no rework needed.
 
 ```
 main                              ← project outline & scaffolding
-  └── stage-1-price-dashboard     ← yfinance + Streamlit MVP
-        └── stage-2-weather-analysis  ← weather correlation layer
+  └── phase-1-price-dashboard     ← yfinance + Streamlit MVP
+        └── phase-2-weather-analysis  ← weather correlation layer
 ```
 
-**Merge path**: `stage-1` → `main` → rebase `stage-2` onto updated `main`
+**Merge path**: `phase-1` → `main` → rebase `phase-2` onto updated `main`
 
 ---
 
-### Stage 1 — `stage-1-price-dashboard` (MVP: Price Dashboard)
+### Phase 1 — `phase-1-price-dashboard` (MVP: Price Dashboard)
 
 **Goal**: Fetch daily coffee futures data and serve an interactive Streamlit dashboard. No weather yet.
 
@@ -282,9 +282,9 @@ main                              ← project outline & scaffolding
 
 ---
 
-### Stage 2 — `stage-2-weather-analysis` (Full Analysis)
+### Phase 2 — `phase-2-weather-analysis` (Full Analysis)
 
-**Goal**: Add weather data ingestion, shock detection, event-study analysis, and expand the dashboard with weather-correlation views. Branches from `stage-1` (inherits all dashboard code).
+**Goal**: Add weather data ingestion, shock detection, event-study analysis, and expand the dashboard with weather-correlation views. Branches from `phase-1` (inherits all dashboard code).
 
 | Step | Task | Files |
 |------|------|-------|
