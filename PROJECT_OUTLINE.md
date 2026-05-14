@@ -251,30 +251,57 @@ Alternatively: schedule a local Windows Task Scheduler job or use `cron` on a cl
 
 ---
 
-## 8. Phased Implementation Plan
+## 8. Staged Implementation Plan (Git Branch Strategy)
 
-### Phase 1 — Core Pipeline (Week 1)
-- [ ] Project scaffolding (`pyproject.toml`, `src/`, `data/`)
-- [ ] yfinance fetcher for KC=F
-- [ ] Open-Meteo fetcher for 5 regions
-- [ ] Basic data cleaning & storage (parquet)
+The project is built incrementally across two git branches, each a self-contained, demo-ready milestone. Branch **stage-2** inherits all code from stage-1 and extends it — no rework needed.
 
-### Phase 2 — Analysis Engine (Week 2)
-- [ ] Shock event detection algorithm
-- [ ] Event study framework
-- [ ] Cross-correlation analysis
-- [ ] Regression models with controls
+```
+main                              ← project outline & scaffolding
+  └── stage-1-price-dashboard     ← yfinance + Streamlit MVP
+        └── stage-2-weather-analysis  ← weather correlation layer
+```
 
-### Phase 3 — Visualization & Dashboard (Week 3)
-- [ ] Static plotting functions (publication quality)
-- [ ] Streamlit dashboard with all pages
-- [ ] Interactive correlation explorer
+**Merge path**: `stage-1` → `main` → rebase `stage-2` onto updated `main`
 
-### Phase 4 — Polish & Deploy (Week 4)
-- [ ] GitHub Actions daily refresh
-- [ ] README & documentation
-- [ ] Tests for critical path
-- [ ] Deploy to Streamlit Cloud / Hugging Face Spaces
+---
+
+### Stage 1 — `stage-1-price-dashboard` (MVP: Price Dashboard)
+
+**Goal**: Fetch daily coffee futures data and serve an interactive Streamlit dashboard. No weather yet.
+
+| Step | Task | Files |
+|------|------|-------|
+| 1.1 | Project scaffolding | `pyproject.toml`, `src/__init__.py`, `src/config.py` |
+| 1.2 | yfinance fetcher for KC=F | `src/data/fetch_coffee.py` |
+| 1.3 | Price visualization module | `src/visualization/price_charts.py` (candlestick, SMA, RSI, volatility) |
+| 1.4 | Streamlit dashboard app | `src/dashboard/app.py` |
+| 1.5 | Install deps, run, verify | Smoke-test the dashboard locally |
+| 1.6 | Commit & merge to main | PR into `main`, then `main` is the working MVP |
+
+**Deliverable**: A running Streamlit app showing coffee price charts with technical indicators.
+
+---
+
+### Stage 2 — `stage-2-weather-analysis` (Full Analysis)
+
+**Goal**: Add weather data ingestion, shock detection, event-study analysis, and expand the dashboard with weather-correlation views. Branches from `stage-1` (inherits all dashboard code).
+
+| Step | Task | Files |
+|------|------|-------|
+| 2.1 | Open-Meteo fetcher for 5 regions | `src/data/fetch_weather.py` |
+| 2.2 | Weather data processing (grid aggregation, anomalies) | `src/data/process_weather.py` |
+| 2.3 | Merge coffee + weather into analysis dataset | `src/data/merge_data.py` |
+| 2.4 | Shock event detection (heatwave/drought) | `src/analysis/detect_shocks.py` |
+| 2.5 | Event study framework | `src/analysis/event_study.py` |
+| 2.6 | Cross-correlation & Granger causality | `src/analysis/correlation.py` |
+| 2.7 | Regression models with controls | `src/analysis/models.py` |
+| 2.8 | Weather & correlation visualization | `src/visualization/weather_maps.py`, `src/visualization/correlation_plots.py` |
+| 2.9 | Expand dashboard with weather pages | `src/dashboard/app.py` (add weather monitor, correlation explorer, event study viewer) |
+| 2.10 | GitHub Actions daily refresh | `.github/workflows/daily_update.yml` |
+| 2.11 | Tests, README, polish | `tests/`, `README.md` |
+| 2.12 | Deploy & merge to main | Final production branch |
+
+**Deliverable**: Full-featured dashboard with live price monitoring AND climate-correlation analytics.
 
 ---
 
