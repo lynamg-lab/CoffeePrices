@@ -6,8 +6,10 @@ venv/
 .env
 *.parquet
 *.csv
-data/raw/
-data/processed/
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
 .ipynb_checkpoints/
 dist/
 *.log
