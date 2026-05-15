@@ -4,7 +4,26 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from src.config import COLOR_PALETTE
+from src.config import (
+    COLOR_BOLLINGER_FILL,
+    COLOR_CLOSE_LINE,
+    COLOR_DOWN,
+    COLOR_DRAWDOWN,
+    COLOR_GRID,
+    COLOR_RSI_OVERBOUGHT,
+    COLOR_RSI_OVERSOLD,
+    COLOR_SMA50,
+    COLOR_SMA200,
+    COLOR_UP,
+    COLOR_VOLATILITY,
+    COLOR_VOLUME,
+    PLOTLY_TEMPLATE,
+)
+
+
+def _apply_theme(fig: go.Figure) -> go.Figure:
+    fig.update_layout(template=PLOTLY_TEMPLATE)
+    return fig
 
 
 def candlestick_chart(df: pd.DataFrame) -> go.Figure:
@@ -22,8 +41,8 @@ def candlestick_chart(df: pd.DataFrame) -> go.Figure:
             low=df["Low"],
             close=df["Close"],
             name="KC=F",
-            increasing_line_color=COLOR_PALETTE["up"],
-            decreasing_line_color=COLOR_PALETTE["down"],
+            increasing_line_color=COLOR_UP,
+            decreasing_line_color=COLOR_DOWN,
         ),
         row=1, col=1,
     )
@@ -32,21 +51,19 @@ def candlestick_chart(df: pd.DataFrame) -> go.Figure:
             x=df.index,
             y=df["Volume"],
             name="Volume",
-            marker_color=COLOR_PALETTE["down"],
-            opacity=0.4,
+            marker_color=COLOR_VOLUME,
         ),
         row=2, col=1,
     )
     fig.update_layout(
         title="Coffee Futures (KC=F) — Candlestick & Volume",
         xaxis_rangeslider_visible=False,
-        template="plotly_dark",
         height=650,
         hovermode="x unified",
     )
     fig.update_yaxes(title_text="Price (US¢/lb)", row=1, col=1)
     fig.update_yaxes(title_text="Volume", row=2, col=1)
-    return fig
+    return _apply_theme(fig)
 
 
 def sma_chart(df: pd.DataFrame, windows: tuple = (50, 200)) -> go.Figure:
@@ -55,27 +72,26 @@ def sma_chart(df: pd.DataFrame, windows: tuple = (50, 200)) -> go.Figure:
     fig.add_trace(
         go.Scatter(
             x=df.index, y=close,
-            mode="lines", name="Close", line=dict(color="white", width=1),
+            mode="lines", name="Close", line=dict(color=COLOR_CLOSE_LINE, width=1),
         )
     )
+    colors = {50: COLOR_SMA50, 200: COLOR_SMA200}
     for w in windows:
         sma = close.rolling(window=w).mean()
-        key = f"sma{w}" if w != 50 else "sma50"
         fig.add_trace(
             go.Scatter(
                 x=df.index, y=sma,
                 mode="lines", name=f"SMA {w}",
-                line=dict(color=COLOR_PALETTE[key], width=1.5),
+                line=dict(color=colors.get(w, COLOR_SMA200), width=1.5),
             )
         )
     fig.update_layout(
         title="Simple Moving Averages",
-        template="plotly_dark",
         height=500,
         hovermode="x unified",
     )
     fig.update_yaxes(title_text="Price (US¢/lb)")
-    return fig
+    return _apply_theme(fig)
 
 
 def bollinger_chart(df: pd.DataFrame, window: int = 20, num_std: float = 2.0) -> go.Figure:
@@ -86,19 +102,12 @@ def bollinger_chart(df: pd.DataFrame, window: int = 20, num_std: float = 2.0) ->
     lower = sma - num_std * std
 
     fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(
-            x=df.index, y=upper,
-            mode="lines", name="Upper Band", line=dict(width=0),
-            showlegend=False,
-        )
-    )
+    fig.add_trace(go.Scatter(x=df.index, y=upper, mode="lines", line=dict(width=0), showlegend=False))
     fig.add_trace(
         go.Scatter(
             x=df.index, y=lower,
-            mode="lines", name="Lower Band",
-            fill="tonexty",
-            fillcolor=COLOR_PALETTE["bollinger"],
+            mode="lines", fill="tonexty",
+            fillcolor=COLOR_BOLLINGER_FILL,
             line=dict(width=0),
             showlegend=False,
         )
@@ -106,24 +115,23 @@ def bollinger_chart(df: pd.DataFrame, window: int = 20, num_std: float = 2.0) ->
     fig.add_trace(
         go.Scatter(
             x=df.index, y=close,
-            mode="lines", name="Close", line=dict(color="white", width=1),
+            mode="lines", name="Close", line=dict(color=COLOR_CLOSE_LINE, width=1),
         )
     )
     fig.add_trace(
         go.Scatter(
             x=df.index, y=sma,
             mode="lines", name=f"SMA {window}",
-            line=dict(color="#ffa726", width=1.5),
+            line=dict(color=COLOR_SMA50, width=1.5),
         )
     )
     fig.update_layout(
         title=f"Bollinger Bands ({window}-day, {num_std}σ)",
-        template="plotly_dark",
         height=500,
         hovermode="x unified",
     )
     fig.update_yaxes(title_text="Price (US¢/lb)")
-    return fig
+    return _apply_theme(fig)
 
 
 def rsi_chart(df: pd.DataFrame, window: int = 14) -> go.Figure:
@@ -135,32 +143,25 @@ def rsi_chart(df: pd.DataFrame, window: int = 14) -> go.Figure:
     rs = avg_gain / avg_loss
     rsi = 100.0 - (100.0 / (1.0 + rs))
 
-    fig = make_subplots(rows=1, cols=1)
+    fig = go.Figure()
     fig.add_trace(
         go.Scatter(
             x=df.index, y=rsi,
             mode="lines", name=f"RSI {window}",
-            line=dict(color="#42a5f5", width=1.5),
+            line=dict(color="#5c8a8a", width=1.5),
         )
     )
-    fig.add_hline(y=70, line_dash="dash", line_color=COLOR_PALETTE["down"], opacity=0.6)
-    fig.add_hline(y=30, line_dash="dash", line_color=COLOR_PALETTE["up"], opacity=0.6)
-    fig.add_hrect(
-        y0=70, y1=100,
-        fillcolor=COLOR_PALETTE["rsi_overbought"], layer="below", line_width=0,
-    )
-    fig.add_hrect(
-        y0=0, y1=30,
-        fillcolor=COLOR_PALETTE["rsi_oversold"], layer="below", line_width=0,
-    )
+    fig.add_hline(y=70, line_dash="dash", line_color=COLOR_DOWN, opacity=0.6)
+    fig.add_hline(y=30, line_dash="dash", line_color=COLOR_UP, opacity=0.6)
+    fig.add_hrect(y0=70, y1=100, fillcolor=COLOR_RSI_OVERBOUGHT, layer="below", line_width=0)
+    fig.add_hrect(y0=0, y1=30, fillcolor=COLOR_RSI_OVERSOLD, layer="below", line_width=0)
     fig.update_layout(
         title=f"Relative Strength Index ({window}-day)",
-        template="plotly_dark",
         height=400,
         hovermode="x unified",
     )
     fig.update_yaxes(range=[0, 100], title_text="RSI")
-    return fig
+    return _apply_theme(fig)
 
 
 def returns_histogram(df: pd.DataFrame) -> go.Figure:
@@ -170,23 +171,22 @@ def returns_histogram(df: pd.DataFrame) -> go.Figure:
         go.Histogram(
             x=returns,
             nbinsx=60,
-            marker_color=COLOR_PALETTE["up"],
-            opacity=0.75,
+            marker_color=COLOR_UP,
+            opacity=0.7,
             name="Daily Returns",
         )
     )
     mean_val = returns.mean()
-    fig.add_vline(x=mean_val, line_dash="dash", line_color="white",
+    fig.add_vline(x=mean_val, line_dash="dash", line_color=COLOR_DOWN,
                   annotation_text=f"Mean: {mean_val:.2f}%")
     fig.update_layout(
         title="Distribution of Daily Returns",
-        template="plotly_dark",
         height=400,
         hovermode="x",
     )
     fig.update_xaxes(title_text="Daily Return (%)")
     fig.update_yaxes(title_text="Frequency")
-    return fig
+    return _apply_theme(fig)
 
 
 def rolling_volatility_chart(df: pd.DataFrame, window: int = 30) -> go.Figure:
@@ -197,19 +197,18 @@ def rolling_volatility_chart(df: pd.DataFrame, window: int = 30) -> go.Figure:
         go.Scatter(
             x=returns.index, y=vol,
             mode="lines", name=f"{window}-day Vol",
-            line=dict(color=COLOR_PALETTE["sma200"], width=1.5),
+            line=dict(color=COLOR_VOLATILITY, width=1.5),
             fill="tozeroy",
-            fillcolor="rgba(171,71,188,0.1)",
+            fillcolor=COLOR_BOLLINGER_FILL,
         )
     )
     fig.update_layout(
         title=f"Rolling {window}-Day Volatility (σ of daily returns)",
-        template="plotly_dark",
         height=400,
         hovermode="x unified",
     )
     fig.update_yaxes(title_text="Volatility (%)")
-    return fig
+    return _apply_theme(fig)
 
 
 def drawdown_chart(df: pd.DataFrame) -> go.Figure:
@@ -221,16 +220,15 @@ def drawdown_chart(df: pd.DataFrame) -> go.Figure:
         go.Scatter(
             x=df.index, y=drawdown,
             mode="lines", name="Drawdown",
-            line=dict(color=COLOR_PALETTE["down"], width=1.5),
+            line=dict(color=COLOR_DOWN, width=1.5),
             fill="tozeroy",
-            fillcolor="rgba(239,83,80,0.1)",
+            fillcolor=COLOR_DRAWDOWN,
         )
     )
     fig.update_layout(
         title="Drawdown from All-Time High",
-        template="plotly_dark",
         height=400,
         hovermode="x unified",
     )
     fig.update_yaxes(title_text="Drawdown (%)")
-    return fig
+    return _apply_theme(fig)
