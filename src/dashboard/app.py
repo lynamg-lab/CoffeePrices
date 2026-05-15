@@ -1,8 +1,12 @@
 """Streamlit dashboard for coffee futures price visualization."""
 
+import sys
 from datetime import date
+from pathlib import Path
 
 import streamlit as st
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from src.data.fetch_coffee import fetch_coffee
 from src.visualization.price_charts import (
