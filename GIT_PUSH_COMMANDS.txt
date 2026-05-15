@@ -1,0 +1,21 @@
+:: Git commands to push this project to GitHub
+:: Repository: https://github.com/lynamg-lab/CoffeePrices
+
+:: 1. Add the remote (run once)
+git remote add origin https://github.com/lynamg-lab/CoffeePrices.git
+
+:: 2. Push main branch and set upstream
+git checkout main
+git push -u origin main
+
+:: 3. Push Phase 1 branch
+git checkout phase-1-price-dashboard
+git push -u origin phase-1-price-dashboard
+
+:: 4. Push Phase 2 branch
+git checkout phase-2-weather-analysis
+git push -u origin phase-2-weather-analysis
+
+:: 5. Verify everything pushed
+git remote -v
+git branch -r
