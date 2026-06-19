@@ -1,6 +1,7 @@
-"""Generate an interactive world map showing region bounding boxes overlaid on the
-Natural Earth land mask, plus weather data from parquet files for the latest
-available date.
+"""Generate an interactive world map showing:
+  1. Natural Earth land mask (transparent overlay)
+  2. Region bounding boxes
+  3. Individual grid points colored by max temperature for the latest date
 
 Usage:  python tools/visualize_regions.py
 Output: tools/region_map.html (opens automatically in browser)
@@ -18,7 +19,7 @@ from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.config import DATA_RAW_DIR, REGIONS
-from src.data.fetch_weather import _load_land_mask
+from src.data.fetch_weather import _generate_grid, _is_land, _fetch_point, _load_land_mask
 
 REGION_COLORS = {
     "brazil": "#7cb342",
@@ -30,22 +31,22 @@ REGION_COLORS = {
 
 fig = go.Figure()
 
-# ---- Land mask overlay (transparent) ----
+# ---- Land mask overlay ----
 land = _load_land_mask()
 
 
-def _flatten_geometry(geom):
+def _flatten(geom):
     if isinstance(geom, Polygon):
         return [geom]
     if isinstance(geom, (MultiPolygon, GeometryCollection)):
         polys = []
         for g in geom.geoms:
-            polys.extend(_flatten_geometry(g))
+            polys.extend(_flatten(g))
         return polys
     return []
 
 
-for poly in _flatten_geometry(land):
+for poly in _flatten(land):
     coords = list(poly.exterior.coords)
     lons, lats = zip(*coords)
     fig.add_trace(
@@ -81,76 +82,73 @@ for key, r in REGIONS.items():
         )
     )
 
-# ---- Weather data markers (latest common date) ----
-weather_labels = []
-center_lons = []
-center_lats = []
-temp_means = []
-hover_texts = []
+# ---- Grid points coloured by temp_max (latest date) ----
+grid_lons: list[float] = []
+grid_lats: list[float] = []
+grid_temps: list[float] = []
+grid_hover: list[str] = []
 
-for key in REGIONS:
-    path = Path(DATA_RAW_DIR) / f"weather_{key}.parquet"
-    if not path.exists():
+for key, r in REGIONS.items():
+    parquet_path = Path(DATA_RAW_DIR) / f"weather_{key}.parquet"
+    if not parquet_path.exists():
         continue
 
-    df = pd.read_parquet(path)
-    if df.empty:
+    region_df = pd.read_parquet(parquet_path)
+    if region_df.empty:
         continue
 
-    latest = df.iloc[-1]
-    center = REGIONS[key]
-    c_lat = (center["lat_min"] + center["lat_max"]) / 2
-    c_lon = (center["lon_min"] + center["lon_max"]) / 2
+    latest_date = region_df.index[-1]
+    date_str = latest_date.strftime("%Y-%m-%d")
 
-    hover = (
-        f"<b>{center['country']}</b><br>"
-        f"Date: {latest.name:%Y-%m-%d}<br>"
-        f"Temp max: {latest.get('temp_max', np.nan):.1f}°C<br>"
-        f"Temp mean: {latest.get('temp_mean', np.nan):.1f}°C<br>"
-        f"Temp min: {latest.get('temp_min', np.nan):.1f}°C<br>"
-        f"Precipitation: {latest.get('precipitation', np.nan):.1f} mm<br>"
-        f"Evapotranspiration: {latest.get('evapotranspiration', np.nan):.2f} mm"
-    )
+    grid = _generate_grid(r["lat_min"], r["lat_max"], r["lon_min"], r["lon_max"], 1.0)
+    grid = [(lat, lon) for lat, lon in grid if _is_land(lat, lon)]
 
-    center_lons.append(c_lon)
-    center_lats.append(c_lat)
-    temp_means.append(latest.get("temp_mean", np.nan))
-    weather_labels.append(center["country"])
-    hover_texts.append(hover)
+    for lat, lon in grid:
+        pt_df = _fetch_point(lat, lon, date_str, date_str)
+        if pt_df is None or pt_df.empty:
+            continue
+        row = pt_df.iloc[0]
+        temp = row.get("temp_max")
+        if temp is None or np.isnan(temp):
+            continue
 
-if temp_means:
+        grid_lons.append(lon)
+        grid_lats.append(lat)
+        grid_temps.append(temp)
+        grid_hover.append(
+            f"<b>{r['country']}</b><br>"
+            f"Lat: {lat:.2f}, Lon: {lon:.2f}<br>"
+            f"Date: {date_str}<br>"
+            f"Temp max: {temp:.1f}°C"
+        )
+
+if grid_temps:
     fig.add_trace(
         go.Scattergeo(
-            lon=center_lons,
-            lat=center_lats,
-            mode="markers+text",
+            lon=grid_lons,
+            lat=grid_lats,
+            mode="markers",
             marker=dict(
-                size=28,
-                color=temp_means,
+                size=10,
+                color=grid_temps,
                 colorscale="RdYlBu_r",
                 showscale=True,
                 colorbar=dict(
-                    title="Temp mean (°C)",
+                    title="Max temp (°C)",
                     x=1.02,
-                    len=0.5,
+                    len=0.6,
                 ),
-                line=dict(width=2, color="#4a3728"),
+                line=dict(width=0.5, color="rgba(74,55,40,0.3)"),
                 symbol="circle",
             ),
-            text=weather_labels,
-            textposition="bottom center",
-            textfont=dict(size=11, color="#4a3728", family="Segoe UI, sans-serif"),
             hovertemplate="%{customdata}<extra></extra>",
-            customdata=hover_texts,
-            name="Weather (latest)",
+            customdata=grid_hover,
+            name="Grid points (temp_max)",
         )
     )
 
 fig.update_layout(
-    title=(
-        "Coffee Producing Regions — Land Mask & Latest Weather Data<br>"
-        "<sup>Bubbles coloured by mean temperature. Hover for all variables.</sup>"
-    ),
+    title="Coffee Producing Regions — Gridded Max Temperature (latest date)",
     geo=dict(
         showland=False,
         showocean=True,
@@ -161,7 +159,7 @@ fig.update_layout(
         projection_type="natural earth",
         showframe=False,
     ),
-    margin=dict(l=10, r=10, t=60, b=10),
+    margin=dict(l=10, r=10, t=50, b=10),
     paper_bgcolor="#faf6f0",
     font=dict(color="#4a3728", family="Segoe UI, sans-serif"),
 )
