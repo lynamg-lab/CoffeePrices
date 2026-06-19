@@ -27,7 +27,9 @@ def fetch_coffee(
 
     if not refresh:
         try:
-            return get_prices_in_range(start, end or datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+            result = get_prices_in_range(start, end or datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+            if not result.empty:
+                return result
         except Exception:
             cached = load_cached()
             if cached is not None:
