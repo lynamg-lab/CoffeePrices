@@ -118,31 +118,28 @@ with tab1:
         """)
 
 with tab2:
-    col_left, col_right = st.columns(2)
-    with col_left:
-        st.plotly_chart(sma_chart(df), width="stretch")
-        with st.expander("What is SMA?"):
-            st.markdown("""
-            **Simple Moving Average (SMA)** — the average closing price over a fixed number of
-            days, recalculated each day as the window slides forward. It smooths out day-to-day
-            noise to reveal the underlying trend.\n
-            - **SMA 50** (orange) — short-term trend (~2.5 months of trading days).\n
-            - **SMA 200** (purple) — long-term trend (~10 months).\n
-            - A common signal: when the 50-day crosses **above** the 200-day it's called a
-            "Golden Cross" (bullish); crossing **below** is a "Death Cross" (bearish).
-            """)
-    with col_right:
-        st.plotly_chart(bollinger_chart(df), width="stretch")
-        with st.expander("What are Bollinger Bands?"):
-            st.markdown("""
-            **Bollinger Bands** — a volatility envelope around a 20-day SMA:\n
-            - The **middle line** (orange) is the 20-day SMA.\n
-            - The **upper/lower bands** sit 2 standard deviations above and below the SMA.
-            In a normal distribution, ~95% of prices should stay within the bands.\n
-            - When the bands **squeeze** (narrow), it signals low volatility and often
-            precedes a breakout. When price touches or pierces a band, it may indicate
-            overbought (upper) or oversold (lower) conditions.
-            """)
+    st.plotly_chart(sma_chart(df), width="stretch")
+    with st.expander("What is SMA?"):
+        st.markdown("""
+        **Simple Moving Average (SMA)** — the average closing price over a fixed number of
+        days, recalculated each day as the window slides forward. It smooths out day-to-day
+        noise to reveal the underlying trend.\n
+        - **SMA 50** (orange) — short-term trend (~2.5 months of trading days).\n
+        - **SMA 200** (purple) — long-term trend (~10 months).\n
+        - A common signal: when the 50-day crosses **above** the 200-day it's called a
+        "Golden Cross" (bullish); crossing **below** is a "Death Cross" (bearish).
+        """)
+    st.plotly_chart(bollinger_chart(df), width="stretch")
+    with st.expander("What are Bollinger Bands?"):
+        st.markdown("""
+        **Bollinger Bands** — a volatility envelope around a 20-day SMA:\n
+        - The **middle line** (orange) is the 20-day SMA.\n
+        - The **upper/lower bands** sit 2 standard deviations above and below the SMA.
+        In a normal distribution, ~95% of prices should stay within the bands.\n
+        - When the bands **squeeze** (narrow), it signals low volatility and often
+        precedes a breakout. When price touches or pierces a band, it may indicate
+        overbought (upper) or oversold (lower) conditions.
+        """)
     st.plotly_chart(rsi_chart(df), width="stretch")
     with st.expander("What is RSI?"):
         st.markdown("""
