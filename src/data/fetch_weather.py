@@ -7,6 +7,7 @@ Data is cached via requests_cache to avoid re-fetching identical API calls.
 
 import io
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -33,7 +34,6 @@ COLUMN_MAP = {
     "temperature_2m_min": "temp_min",
     "temperature_2m_mean": "temp_mean",
     "precipitation_sum": "precipitation",
-    "soil_moisture_0_to_7cm": "soil_moisture",
     "et0_fao_evapotranspiration": "evapotranspiration",
 }
 
@@ -121,6 +121,8 @@ def fetch_weather(
     resolution: float = GRID_RESOLUTION,
 ) -> pd.DataFrame:
     region = REGIONS[region_key]
+    if end is None:
+        end = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     grid = _generate_grid(
         region["lat_min"],
         region["lat_max"],
@@ -163,6 +165,8 @@ def fetch_all_regions(
     end: str | None = None,
     resolution: float = GRID_RESOLUTION,
 ) -> dict[str, pd.DataFrame]:
+    if end is None:
+        end = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     results: dict[str, pd.DataFrame] = {}
     for key in REGIONS:
         results[key] = fetch_weather(key, start=start, end=end, resolution=resolution)

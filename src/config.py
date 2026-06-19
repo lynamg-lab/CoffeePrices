@@ -64,12 +64,12 @@ REGIONS = {
 GRID_RESOLUTION = 1.0
 
 # Open-Meteo daily weather variables to request
+# Note: soil_moisture_0_to_7cm is not available on the historical archive API
 WEATHER_VARIABLES = [
     "temperature_2m_max",
     "temperature_2m_min",
     "temperature_2m_mean",
     "precipitation_sum",
-    "soil_moisture_0_to_7cm",
     "et0_fao_evapotranspiration",
 ]
 
