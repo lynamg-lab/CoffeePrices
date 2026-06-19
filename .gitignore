@@ -17,4 +17,5 @@ dist/
 *.log
 .streamlit/secrets.toml
 guides/
+tools/region_map.html
 research/
