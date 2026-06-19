@@ -77,6 +77,24 @@ ytd_return = (latest_price - ytd_start) / ytd_start * 100
 high_52w = close[-252:].max() if len(close) >= 252 else close.max()
 low_52w = close[-252:].min() if len(close) >= 252 else close.min()
 
+st.markdown("""
+<style>
+div[data-testid="stMetric"] {
+    background-color: #f0ebe3;
+    border: 1px solid #e0d5c5;
+    border-radius: 10px;
+    padding: 16px 20px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+}
+div[data-testid="stMetric"] label {
+    color: #8b7355 !important;
+}
+div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+    color: #4a3728 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Latest Price", f"{latest_price:.2f} ¢/lb", f"{daily_change:+.2f} ({daily_pct:+.2f}%)")
 c2.metric("YTD Return", f"{ytd_return:+.2f}%")
