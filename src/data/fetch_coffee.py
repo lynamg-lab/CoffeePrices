@@ -1,7 +1,6 @@
 """Fetch daily coffee futures data from Yahoo Finance via yfinance."""
 
 from datetime import datetime, timezone
-
 from pathlib import Path
 
 import pandas as pd
@@ -23,10 +22,16 @@ def fetch_coffee(
     end: str | None = None,
     refresh: bool = False,
 ) -> pd.DataFrame:
-    """Load coffee futures data from cached parquet, or download if needed."""
-    cached = load_cached()
-    if cached is not None and not refresh:
-        return cached
+    """Load coffee futures data from PostgreSQL, cached parquet, or download fresh."""
+    from src.database.repositories.prices import get_prices_in_range, save_prices
+
+    if not refresh:
+        try:
+            return get_prices_in_range(start, end or datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+        except Exception:
+            cached = load_cached()
+            if cached is not None:
+                return cached
 
     import yfinance as yf
 
@@ -36,14 +41,19 @@ def fetch_coffee(
     df = yf.download(TICKER_COFFEE, start=start, end=end, progress=False)
 
     if df.empty:
-        if cached is not None:
-            return cached
+        if not refresh:
+            cached = load_cached()
+            if cached is not None:
+                return cached
         raise RuntimeError("Download failed and no cache exists")
 
     df.columns = df.columns.get_level_values(0)
     df.index = pd.to_datetime(df.index)
 
-    Path(COFFEE_PARQUET).parent.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(COFFEE_PARQUET)
+    try:
+        save_prices(df)
+    except Exception:
+        Path(COFFEE_PARQUET).parent.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(COFFEE_PARQUET)
 
     return df.sort_index()
