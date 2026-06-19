@@ -1,10 +1,12 @@
 """Fetch daily weather data from Open-Meteo Historical API for coffee-producing regions.
 
-Queries gridded weather data within each region's bounding box and computes
-regional daily averages.  Data is cached via requests_cache to avoid re-fetching
-identical API calls on repeated runs.
+Queries gridded weather data within each region's bounding box, filters grid points
+to land-only via Natural Earth coastline data, and computes regional daily averages.
+Data is cached via requests_cache to avoid re-fetching identical API calls.
 """
 
+import io
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -26,7 +28,6 @@ requests_cache.install_cache(
     expire_after=86400,
 )
 
-
 COLUMN_MAP = {
     "temperature_2m_max": "temp_max",
     "temperature_2m_min": "temp_min",
@@ -35,6 +36,42 @@ COLUMN_MAP = {
     "soil_moisture_0_to_7cm": "soil_moisture",
     "et0_fao_evapotranspiration": "evapotranspiration",
 }
+
+_NE_110M_LAND_URL = (
+    "https://naciscdn.org/naturalearth/110m/physical/ne_110m_land.zip"
+)
+_land_polygon = None
+
+
+def _load_land_mask():
+    global _land_polygon
+    if _land_polygon is not None:
+        return _land_polygon
+
+    from shapely.ops import unary_union
+
+    external_dir = Path(DATA_RAW_DIR).parent / "external"
+    external_dir.mkdir(parents=True, exist_ok=True)
+    shp_path = external_dir / "ne_110m_land.shp"
+
+    if not shp_path.exists():
+        print("Downloading Natural Earth land mask (600 KB) …")
+        resp = requests.get(_NE_110M_LAND_URL, timeout=30)
+        resp.raise_for_status()
+        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+            zf.extractall(external_dir)
+
+    import geopandas as gpd
+
+    land = gpd.read_file(shp_path)
+    _land_polygon = unary_union(land.geometry.values)
+    return _land_polygon
+
+
+def _is_land(lat: float, lon: float) -> bool:
+    from shapely.geometry import Point
+
+    return _load_land_mask().contains(Point(lon, lat))
 
 
 def _generate_grid(
@@ -92,18 +129,23 @@ def fetch_weather(
         resolution,
     )
 
-    print(f"Fetching {region['country']}: {len(grid)} grid points …")
+    land_points = [(lat, lon) for lat, lon in grid if _is_land(lat, lon)]
+    dropped = len(grid) - len(land_points)
+    print(
+        f"Fetching {region['country']}: {len(land_points)}/{len(grid)} land points "
+        f"({dropped} ocean dropped)"
+    )
 
     point_dfs: list[pd.DataFrame] = []
-    for i, (lat, lon) in enumerate(grid):
+    for i, (lat, lon) in enumerate(land_points):
         if (i + 1) % 10 == 0 or i == 0:
-            print(f"  {i + 1}/{len(grid)}")
+            print(f"  {i + 1}/{len(land_points)}")
         pt_df = _fetch_point(lat, lon, start, end)
         if pt_df is not None and not pt_df.empty:
             point_dfs.append(pt_df)
 
     if not point_dfs:
-        raise RuntimeError(f"All grid points failed for {region['country']}")
+        raise RuntimeError(f"All land points failed for {region['country']}")
 
     combined = pd.concat(point_dfs)
     regional = combined.groupby(combined.index).mean()
@@ -112,7 +154,7 @@ def fetch_weather(
     path.parent.mkdir(parents=True, exist_ok=True)
     regional.to_parquet(path)
 
-    print(f"  Saved {len(regional)} days → {path}")
+    print(f"  Saved {len(regional)} days to {path}")
     return regional
 
 
