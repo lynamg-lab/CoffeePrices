@@ -63,6 +63,6 @@ fig.update_layout(
 
 output = Path(__file__).resolve().parent / "region_map.html"
 fig.write_html(str(output))
-print(f"Map saved → {output}")
+print(f"Map saved: {output}")
 
 webbrowser.open(str(output))
