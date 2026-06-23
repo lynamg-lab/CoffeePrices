@@ -1,26 +1,23 @@
-"""Fetch daily weather data from Open-Meteo Historical API for coffee-producing regions.
+"""Fetch daily weather from Open-Meteo for Brazil's coffee mesoregions.
 
-Queries gridded weather data within each region's bounding box, filters grid points
-to land-only via Natural Earth coastline data, and computes regional daily averages.
-Data is cached via requests_cache to avoid re-fetching identical API calls.
+Queries weather at each mesoregion centroid and returns a daily panel of
+weather variables indexed by (meso_key, date).
 """
 
-import io
-import zipfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import requests
 import requests_cache
 
 from src.config import (
+    DATA_PROCESSED_DIR,
     DATA_RAW_DIR,
     DEFAULT_START_DATE,
-    GRID_RESOLUTION,
+    MESOREGIONS,
     OPEN_METEO_URL,
-    REGIONS,
     WEATHER_VARIABLES,
 )
 
@@ -37,54 +34,6 @@ COLUMN_MAP = {
     "et0_fao_evapotranspiration": "evapotranspiration",
 }
 
-_NE_110M_LAND_URL = (
-    "https://naciscdn.org/naturalearth/110m/physical/ne_110m_land.zip"
-)
-_land_polygon = None
-
-
-def _load_land_mask():
-    global _land_polygon
-    if _land_polygon is not None:
-        return _land_polygon
-
-    from shapely.ops import unary_union
-
-    external_dir = Path(DATA_RAW_DIR).parent / "external"
-    external_dir.mkdir(parents=True, exist_ok=True)
-    shp_path = external_dir / "ne_110m_land.shp"
-
-    if not shp_path.exists():
-        print("Downloading Natural Earth land mask (600 KB) …")
-        resp = requests.get(_NE_110M_LAND_URL, timeout=30)
-        resp.raise_for_status()
-        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
-            zf.extractall(external_dir)
-
-    import geopandas as gpd
-
-    land = gpd.read_file(shp_path)
-    _land_polygon = unary_union(land.geometry.values)
-    return _land_polygon
-
-
-def _is_land(lat: float, lon: float) -> bool:
-    from shapely.geometry import Point
-
-    return _load_land_mask().contains(Point(lon, lat))
-
-
-def _generate_grid(
-    lat_min: float,
-    lat_max: float,
-    lon_min: float,
-    lon_max: float,
-    resolution: float,
-) -> list[tuple[float, float]]:
-    lats = np.arange(lat_min, lat_max + resolution / 2, resolution)
-    lons = np.arange(lon_min, lon_max + resolution / 2, resolution)
-    return [(float(lat), float(lon)) for lat in lats for lon in lons]
-
 
 def _fetch_point(lat: float, lon: float, start: str, end: str) -> pd.DataFrame | None:
     params = {
@@ -99,7 +48,12 @@ def _fetch_point(lat: float, lon: float, start: str, end: str) -> pd.DataFrame |
         resp = requests.get(OPEN_METEO_URL, params=params, timeout=30)
         resp.raise_for_status()
         data = resp.json()
-    except Exception:
+    except Exception as e:
+        print(f"  Error at ({lat:.2f}, {lon:.2f}): {e}")
+        return None
+
+    if data.get("error"):
+        print(f"  API error at ({lat:.2f}, {lon:.2f}): {data.get('reason', 'unknown')}")
         return None
 
     daily = data.get("daily")
@@ -115,59 +69,60 @@ def _fetch_point(lat: float, lon: float, start: str, end: str) -> pd.DataFrame |
 
 
 def fetch_weather(
-    region_key: str,
     start: str = DEFAULT_START_DATE,
     end: str | None = None,
-    resolution: float = GRID_RESOLUTION,
+    delay_s: float = 2.0,
 ) -> pd.DataFrame:
-    region = REGIONS[region_key]
+    """Fetch weather at each mesoregion centroid.
+
+    Returns a DataFrame with MultiIndex (meso_key, date) and weather variable columns.
+    A small delay between requests avoids hitting Open-Meteo rate limits.
+    """
     if end is None:
         end = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    grid = _generate_grid(
-        region["lat_min"],
-        region["lat_max"],
-        region["lon_min"],
-        region["lon_max"],
-        resolution,
+
+    records = []
+    meso_keys = sorted(MESOREGIONS.keys())
+    print(f"Fetching weather for {len(meso_keys)} mesoregions ...")
+
+    for i, meso_key in enumerate(meso_keys):
+        meso = MESOREGIONS[meso_key]
+        lat, lon = meso["centroid_lat"], meso["centroid_lon"]
+        name = meso["meso_name"]
+
+        if (i + 1) % 5 == 0 or i == 0:
+            print(f"  {i + 1}/{len(meso_keys)}: {name}")
+
+        df = _fetch_point(lat, lon, start, end)
+        if df is not None:
+            for date_idx, row in df.iterrows():
+                rec = {"meso_key": meso_key, "date": date_idx}
+                for col in COLUMN_MAP.values():
+                    rec[col] = row.get(col)
+                records.append(rec)
+        else:
+            print(f"  WARNING: No data for {name} ({meso_key})")
+
+        time.sleep(delay_s)
+
+    if not records:
+        raise RuntimeError("No weather data fetched for any mesoregion")
+
+    result = pd.DataFrame(records).set_index(["meso_key", "date"]).sort_index()
+    result.index = result.index.set_levels(
+        [result.index.levels[0], pd.to_datetime(result.index.levels[1])]
     )
 
-    land_points = [(lat, lon) for lat, lon in grid if _is_land(lat, lon)]
-    dropped = len(grid) - len(land_points)
-    print(
-        f"Fetching {region['country']}: {len(land_points)}/{len(grid)} land points "
-        f"({dropped} ocean dropped)"
-    )
+    DATA_PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = DATA_PROCESSED_DIR / "weather_mesoregion_daily.parquet"
+    result.to_parquet(out_path)
+    print(f"Saved {len(result)} mesoregion-day records to {out_path}")
 
-    point_dfs: list[pd.DataFrame] = []
-    for i, (lat, lon) in enumerate(land_points):
-        if (i + 1) % 10 == 0 or i == 0:
-            print(f"  {i + 1}/{len(land_points)}")
-        pt_df = _fetch_point(lat, lon, start, end)
-        if pt_df is not None and not pt_df.empty:
-            point_dfs.append(pt_df)
-
-    if not point_dfs:
-        raise RuntimeError(f"All land points failed for {region['country']}")
-
-    combined = pd.concat(point_dfs)
-    regional = combined.groupby(combined.index).mean()
-
-    path = Path(DATA_RAW_DIR) / f"weather_{region_key}.parquet"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    regional.to_parquet(path)
-
-    print(f"  Saved {len(regional)} days to {path}")
-    return regional
+    return result
 
 
-def fetch_all_regions(
-    start: str = DEFAULT_START_DATE,
-    end: str | None = None,
-    resolution: float = GRID_RESOLUTION,
-) -> dict[str, pd.DataFrame]:
-    if end is None:
-        end = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    results: dict[str, pd.DataFrame] = {}
-    for key in REGIONS:
-        results[key] = fetch_weather(key, start=start, end=end, resolution=resolution)
-    return results
+def load_cached_weather() -> pd.DataFrame | None:
+    path = DATA_PROCESSED_DIR / "weather_mesoregion_daily.parquet"
+    if path.exists():
+        return pd.read_parquet(path)
+    return None

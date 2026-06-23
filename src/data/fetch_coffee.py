@@ -23,9 +23,14 @@ def fetch_coffee(
     refresh: bool = False,
 ) -> pd.DataFrame:
     """Load coffee futures data from PostgreSQL, cached parquet, or download fresh."""
-    from src.database.repositories.prices import get_prices_in_range, save_prices
+    try:
+        from src.database.repositories.prices import get_prices_in_range, save_prices
+        db_available = True
+    except Exception:
+        db_available = False
+        save_prices = None
 
-    if not refresh:
+    if not refresh and db_available:
         try:
             result = get_prices_in_range(start, end or datetime.now(timezone.utc).strftime("%Y-%m-%d"))
             if not result.empty:
@@ -34,6 +39,10 @@ def fetch_coffee(
             cached = load_cached()
             if cached is not None:
                 return cached
+    elif not refresh:
+        cached = load_cached()
+        if cached is not None:
+            return cached
 
     import yfinance as yf
 
@@ -43,19 +52,22 @@ def fetch_coffee(
     df = yf.download(TICKER_COFFEE, start=start, end=end, progress=False)
 
     if df.empty:
-        if not refresh:
-            cached = load_cached()
-            if cached is not None:
-                return cached
+        cached = load_cached()
+        if cached is not None:
+            return cached
         raise RuntimeError("Download failed and no cache exists")
 
     df.columns = df.columns.get_level_values(0)
     df.index = pd.to_datetime(df.index)
 
-    try:
-        save_prices(df)
-    except Exception:
-        Path(COFFEE_PARQUET).parent.mkdir(parents=True, exist_ok=True)
-        df.to_parquet(COFFEE_PARQUET)
+    if db_available:
+        try:
+            save_prices(df)
+            return df.sort_index()
+        except Exception:
+            pass
+
+    Path(COFFEE_PARQUET).parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(COFFEE_PARQUET)
 
     return df.sort_index()

@@ -1,14 +1,17 @@
-"""Streamlit dashboard for coffee futures price visualization."""
+"""Streamlit dashboard for coffee futures and Brazil weather analysis."""
 
 import sys
 from datetime import date
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+from src.config import DATA_PROCESSED_DIR, MESOREGIONS
 from src.data.fetch_coffee import fetch_coffee
+from src.data.merge_data import load_combined
 from src.visualization.price_charts import (
     bollinger_chart,
     candlestick_chart,
@@ -17,6 +20,28 @@ from src.visualization.price_charts import (
     rolling_volatility_chart,
     rsi_chart,
     sma_chart,
+)
+from src.visualization.production_maps import (
+    mesoregion_bar_chart,
+    municipality_choropleth,
+    production_by_state_pie,
+)
+from src.visualization.weather_maps import (
+    anomaly_heatmap,
+    seasonal_climate_profile,
+    shock_timeline,
+)
+from src.visualization.correlation_plots import (
+    car_by_event_type,
+    car_by_production_quartile,
+    granger_summary_table,
+    lag_correlation_heatmap,
+)
+from src.visualization.regression_plots import (
+    actual_vs_predicted,
+    coefficient_plot,
+    rsquared_comparison,
+    run_all_models,
 )
 
 st.set_page_config(
@@ -44,11 +69,18 @@ with st.sidebar:
         "Data is cached locally and refreshed automatically once per day."
     )
     st.divider()
+    st.markdown("**Data Analysis**")
+    refresh_analysis = st.button("Refresh Analysis Data", use_container_width=True)
+    if refresh_analysis:
+        st.cache_data.clear()
+
+    st.divider()
     st.markdown("**About**")
     st.markdown(
-        "Part of the *Coffee & Climate* project. "
-        "Phase 1: live price monitoring. "
-        "Phase 2: weather correlation analysis."
+        "Part of the *Coffee & Climate* project.<br>"
+        "Phase 1: live price monitoring.<br>"
+        "Phase 2: weather correlation analysis.",
+        unsafe_allow_html=True,
     )
 
 # ---- Load data ----
@@ -61,6 +93,25 @@ def load_data(start: str, end: str):
 
 with st.spinner("Fetching coffee futures data..."):
     df = load_data(start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
+
+# ---- Cached analysis data loaders ----
+@st.cache_data(ttl=3600)
+def load_analysis_data():
+    return load_combined()
+
+@st.cache_data(ttl=3600)
+def load_shock_events():
+    path = DATA_PROCESSED_DIR / "shock_events.parquet"
+    return pd.read_parquet(path) if path.exists() else pd.DataFrame()
+
+@st.cache_data(ttl=3600)
+def load_car_results():
+    path = DATA_PROCESSED_DIR / "event_study_results.parquet"
+    return pd.read_parquet(path) if path.exists() else pd.DataFrame()
+
+@st.cache_data(ttl=3600)
+def load_regression_models():
+    return run_all_models()
 
 if df.empty:
     st.error("No data available for the selected date range.")
@@ -121,7 +172,16 @@ with st.expander("About This Data", expanded=False):
     """)
 
 # ---- Tabs ----
-tab1, tab2, tab3 = st.tabs(["📊 Price Overview", "📈 Technical Indicators", "📉 Returns & Volatility"])
+tabs = st.tabs([
+    "📊 Price Overview",
+    "📈 Technical Indicators",
+    "📉 Returns & Volatility",
+    "🗺️ Production",
+    "🌦️ Weather Monitor",
+    "🔗 Correlation Explorer",
+    "📐 Regression Models",
+])
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = tabs
 
 with tab1:
     st.plotly_chart(candlestick_chart(df), width="stretch")
@@ -208,3 +268,81 @@ with tab3:
         - This is a common risk metric: "What is the worst loss an investor would have
         experienced buying at the peak?" — directly useful for understanding downside risk.
         """)
+
+with tab4:
+    with st.spinner("Loading production maps..."):
+        st.plotly_chart(municipality_choropleth(), use_container_width=True)
+    c_left, c_right = st.columns(2)
+    with c_left:
+        st.plotly_chart(production_by_state_pie(), use_container_width=True)
+    with c_right:
+        st.plotly_chart(mesoregion_bar_chart(), use_container_width=True)
+    with st.expander("About the production data"):
+        st.markdown("""
+        **IBGE Municipal Agricultural Survey (2018)** — 1,227 municipalities with non-zero
+        arabica coffee production. Municipality boundaries are mapped to mesoregions using
+        IBGE geocodes. Total 2018 arabica production: **2.67 million tonnes**.\n
+        - Minas Gerais accounts for **70.7%** of national production.
+        - The **Sul/Sudoeste de Minas** mesoregion alone produces 857k tonnes (32%).
+        - Production tonnage is used as the weight when aggregating weather to mesoregion level.
+        """)
+
+with tab5:
+    weather_data_available = load_analysis_data() is not None
+    if not weather_data_available:
+        st.warning("Weather data not available. Run the data pipeline first.")
+    else:
+        st.plotly_chart(anomaly_heatmap(), use_container_width=True)
+        st.divider()
+        st.plotly_chart(shock_timeline(), use_container_width=True)
+        st.divider()
+        meso_keys = sorted(MESOREGIONS.keys())
+        meso_labels = {k: f"{MESOREGIONS[k]['meso_name']} ({k})" for k in meso_keys}
+        selected_meso = st.selectbox(
+            "Select mesoregion for seasonal climate profile",
+            options=meso_keys,
+            format_func=lambda k: meso_labels.get(k, k),
+            index=meso_keys.index("31_10") if "31_10" in meso_keys else 0,
+        )
+        st.plotly_chart(seasonal_climate_profile(selected_meso), use_container_width=True)
+
+with tab6:
+    car_df = load_car_results()
+    if car_df.empty:
+        st.warning("Event study results not available. Run the data pipeline first.")
+    else:
+        row1_left, row1_right = st.columns(2)
+        with row1_left:
+            st.plotly_chart(car_by_event_type(), use_container_width=True)
+        with row1_right:
+            st.plotly_chart(lag_correlation_heatmap(), use_container_width=True)
+        row2_left, row2_right = st.columns(2)
+        with row2_left:
+            st.plotly_chart(car_by_production_quartile(), use_container_width=True)
+        with row2_right:
+            st.plotly_chart(granger_summary_table(), use_container_width=True)
+
+with tab7:
+    analysis = load_analysis_data()
+    if analysis is None:
+        st.warning("Combined analysis data not available. Run the data pipeline first.")
+    else:
+        with st.spinner("Running regression models..."):
+            models = load_regression_models()
+        if not models:
+            st.error("No model results returned.")
+        else:
+            model_names = [m["name"] for m in models]
+            selected_idx = st.selectbox(
+                "Select model",
+                options=range(len(model_names)),
+                format_func=lambda i: model_names[i],
+                index=3,
+            )
+            col_left, col_right = st.columns(2)
+            with col_left:
+                st.plotly_chart(coefficient_plot(models[selected_idx]), use_container_width=True)
+            with col_right:
+                st.plotly_chart(actual_vs_predicted(models[selected_idx]), use_container_width=True)
+            st.divider()
+            st.plotly_chart(rsquared_comparison(models), use_container_width=True)
