@@ -10,6 +10,8 @@ venv/
 data/raw/*
 !data/raw/.gitkeep
 !data/raw/coffee_futures.parquet
+!data/raw/coffee_producing_municipalities.geojson
+!data/raw/spatial-metrics-brazil-coffee-arabica_tn_municipality.geojson
 data/processed/*
 !data/processed/.gitkeep
 .ipynb_checkpoints/
