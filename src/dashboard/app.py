@@ -324,7 +324,7 @@ with tab4:
         if show_muni:
             choropleth = municipality_choropleth()
             if show_meso:
-                choropleth.add_trace(mesoregion_boundaries())
+                choropleth.add_traces(mesoregion_boundaries())
             st.plotly_chart(choropleth, use_container_width=True)
         elif show_meso:
             import plotly.graph_objects as go
@@ -336,7 +336,7 @@ with tab4:
                 margin={"r": 10, "t": 40, "l": 10, "b": 10},
                 title="Arabica Coffee Production by Municipality (2018)",
             )
-            fig.add_trace(mesoregion_boundaries())
+            fig.add_traces(mesoregion_boundaries())
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("Toggle on municipalities or mesoregion boundaries to see the map.")

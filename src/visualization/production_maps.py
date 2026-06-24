@@ -101,8 +101,8 @@ def mesoregion_bar_chart(top_n: int = 20) -> go.Figure:
     return _apply_theme(fig)
 
 
-def mesoregion_boundaries() -> go.Scattermapbox:
-    """Return light-green Scattermapbox trace of mesoregion outlines.
+def mesoregion_boundaries() -> list:
+    """Return a filled Choroplethmapbox trace and an outline Scattermapbox trace.
 
     Mesoregion boundaries are created by dissolving municipality polygons
     on meso_key, producing a unified boundary per mesoregion.
@@ -112,6 +112,18 @@ def mesoregion_boundaries() -> go.Scattermapbox:
     meso_gdf = gdf.dissolve(by="meso_key", aggfunc="sum").reset_index()
 
     meso_gdf = meso_gdf[meso_gdf["meso_key"].isin(MESOREGIONS)].copy()
+
+    geojson = gpd.GeoSeries(meso_gdf.geometry).__geo_interface__
+
+    fill_trace = go.Choroplethmapbox(
+        geojson=geojson,
+        locations=meso_gdf.index,
+        z=[1] * len(meso_gdf),
+        colorscale=[[0, "rgba(144,238,144,0.15)"], [1, "rgba(144,238,144,0.15)"]],
+        showscale=False,
+        hoverinfo="skip",
+        marker_line_width=0,
+    )
 
     lons = []
     lats = []
@@ -127,7 +139,7 @@ def mesoregion_boundaries() -> go.Scattermapbox:
     lons_flat = [x for sub in lons for x in sub]
     lats_flat = [x for sub in lats for x in sub]
 
-    return go.Scattermapbox(
+    outline_trace = go.Scattermapbox(
         lon=lons_flat,
         lat=lats_flat,
         mode="lines",
@@ -136,6 +148,8 @@ def mesoregion_boundaries() -> go.Scattermapbox:
         showlegend=False,
         name="Mesoregion boundaries",
     )
+
+    return [fill_trace, outline_trace]
 
 
 def municipality_count_table() -> go.Figure:
