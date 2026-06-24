@@ -23,7 +23,9 @@ from src.visualization.price_charts import (
 )
 from src.visualization.production_maps import (
     mesoregion_bar_chart,
+    mesoregion_boundaries,
     municipality_choropleth,
+    municipality_count_table,
     production_by_state_pie,
 )
 from src.visualization.weather_maps import (
@@ -173,6 +175,7 @@ with st.expander("About This Data", expanded=False):
 
 # ---- Tabs ----
 tabs = st.tabs([
+    "📋 Introduction",
     "📊 Price Overview",
     "📈 Technical Indicators",
     "📉 Returns & Volatility",
@@ -181,7 +184,48 @@ tabs = st.tabs([
     "🔗 Correlation Explorer",
     "📐 Regression Models",
 ])
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = tabs
+tab_intro, tab1, tab2, tab3, tab4, tab5, tab6, tab7 = tabs
+
+with tab_intro:
+    st.markdown("""
+    ### About This Analysis
+
+    Brazil produces **~35% of the world's coffee**, potentially making its weather an important
+    supply-side variable in global arabica pricing. This dashboard investigates whether
+    **heatwaves and droughts** in Brazil's coffee-producing mesoregions measurably affect
+    **ICE Arabica Coffee futures (KC=F)**.
+
+    **What we built:**
+    - Municipality-level production data for **1,227 producing municipalities** (IBGE 2018)
+    - Production-weighted daily weather indices across **41 mesoregions** (Open-Meteo API)
+    - Shock detection for heatwaves, droughts, and compound events
+    - Event study, Granger causality, and OLS regression framework
+
+    ---
+
+    ### Key Findings
+
+    | Finding | Detail |
+    |---------|--------|
+    | **Weather shocks move prices** | All event types produce statistically significant positive cumulative abnormal returns at 30–90 day horizons (p < 0.001) |
+    | **Compound events are most impactful** | Heatwave + drought co-occurring → **+17.3% CAR at 90 days**, vs. ~+10% for either alone |
+    | **Sul de Minas is the bellwether** | This single mesoregion produces **857k tonnes (32% of national arabica)** — its temperature anomaly is the only weather variable significant in daily regressions (p = 0.03) |
+    | **Oil prices dominate short-term** | Highly significant short-term driver (p = 0.004) — energy/fertilizer cost pass-through |
+    | **Production weighting matters** | Mesoregions with higher production tonnage show stronger price responses to comparable shocks |
+    | **Effects accumulate over weeks** | Weather shocks take 30–90 days to fully price in, not overnight — event study methodology outperforms daily regressions |
+
+    ---
+
+    ### How to Use This Dashboard
+
+    - **Price Overview / Technical Indicators / Returns & Volatility** — explore KC=F price action
+    - **Production** — interactive map of Brazil's arabica coffee regions
+    - **Weather Monitor** — anomaly heatmaps and shock timelines across mesoregions
+    - **Correlation Explorer** — event study CAR charts, cross-correlation lags, Granger causality
+    - **Regression Models** — OLS model comparison with Newey-West standard errors
+
+    > ⚠️ **Work in progress:** The current regression approach (OLS on daily returns) has very low explanatory power (R² ≈ 0.01), which is typical for daily financial data but limits practical usefulness. An alternative methodology using **machine learning (XGBoost) with lagged weather features** and **regime-switching models** is under development to better capture non-linear and delayed price responses to weather shocks.
+    """)
 
 with tab1:
     st.plotly_chart(candlestick_chart(df), width="stretch")
@@ -271,7 +315,31 @@ with tab3:
 
 with tab4:
     with st.spinner("Loading production maps..."):
-        st.plotly_chart(municipality_choropleth(), use_container_width=True)
+        c_muni, c_meso = st.columns(2)
+        with c_muni:
+            show_muni = st.checkbox("Show municipalities", value=True)
+        with c_meso:
+            show_meso = st.checkbox("Show mesoregion boundaries", value=False)
+
+        if show_muni:
+            choropleth = municipality_choropleth()
+            if show_meso:
+                choropleth.add_trace(mesoregion_boundaries())
+            st.plotly_chart(choropleth, use_container_width=True)
+        elif show_meso:
+            import plotly.graph_objects as go
+            from src.visualization.production_maps import _apply_theme
+            fig = _apply_theme(go.Figure())
+            fig.update_layout(
+                mapbox=dict(style="carto-positron", center=dict(lat=-16.5, lon=-47.0), zoom=4.5),
+                height=700,
+                margin={"r": 10, "t": 40, "l": 10, "b": 10},
+                title="Arabica Coffee Production by Municipality (2018)",
+            )
+            fig.add_trace(mesoregion_boundaries())
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Toggle on municipalities or mesoregion boundaries to see the map.")
     c_left, c_right = st.columns(2)
     with c_left:
         st.plotly_chart(production_by_state_pie(), use_container_width=True)
@@ -285,6 +353,28 @@ with tab4:
         - Minas Gerais accounts for **70.7%** of national production.
         - The **Sul/Sudoeste de Minas** mesoregion alone produces 857k tonnes (32%).
         - Production tonnage is used as the weight when aggregating weather to mesoregion level.
+        """)
+    st.divider()
+    st.plotly_chart(municipality_count_table(), use_container_width=True)
+    with st.expander("How mesoregion boundaries were created"):
+        st.markdown("""
+        The mesoregion boundaries shown on the map are **not from a pre-existing shapefile**.
+        They were generated by **dissolving** the 1,227 municipality-level polygons from the
+        IBGE geoJSON — merging all municipality polygons that share the same IBGE mesoregion
+        code into a single MultiPolygon per mesoregion.
+
+        **Steps:**
+        1. Each municipality in the coffee-producing geoJSON has a `meso_id` field from the
+           IBGE API (`servicodados.ibge.gov.br`).
+        2. Polygons were grouped by `meso_id` using `geopandas.dissolve()`.
+        3. Invalid geometry overlaps were repaired with `buffer(0)` before dissolving.
+        4. The resulting 41 mesoregion boundaries were drawn as light-green line overlays
+           using Plotly `Scattermapbox`.
+
+        This gives a **production-weighted** spatial aggregation: a mesoregion's boundary
+        only covers municipalities that actually grow arabica coffee. Municipalities with
+        zero production are excluded, so the boundaries reflect the coffee-growing footprint,
+        not the full administrative mesoregion extent.
         """)
 
 with tab5:

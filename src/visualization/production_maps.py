@@ -20,10 +20,9 @@ def _apply_theme(fig: go.Figure) -> go.Figure:
 def load_production_geojson() -> gpd.GeoDataFrame:
     path = DATA_RAW_DIR / "coffee_producing_municipalities.geojson"
     gdf = gpd.read_file(path)
+    meso_id_str = gdf["meso_id"].astype(str).str[-2:].str.zfill(2)
     gdf["meso_key"] = (
-        gdf["state_geocode"].astype(str).str.zfill(2)
-        + "_"
-        + gdf["meso_id"].astype(str).str.zfill(2)
+        gdf["state_geocode"].astype(str).str.zfill(2) + "_" + meso_id_str
     )
     return gdf
 
@@ -54,7 +53,7 @@ def municipality_choropleth() -> go.Figure:
             "production_pct": ":.2f",
         },
         labels={
-            "production_pct": "Share of national (%)",
+            "production_pct": "% of national production",
             "municipality_name": "Municipality",
             "meso_name": "Mesoregion",
             "production_of_arabica_coffee_tonnes_2018": "Production (tonnes)",
@@ -98,6 +97,118 @@ def mesoregion_bar_chart(top_n: int = 20) -> go.Figure:
         xaxis_title="Production (thousand tonnes)",
         yaxis=dict(autorange="reversed"),
         margin={"r": 60, "t": 40, "l": 10, "b": 10},
+    )
+    return _apply_theme(fig)
+
+
+def mesoregion_boundaries() -> go.Scattermapbox:
+    """Return light-green Scattermapbox trace of mesoregion outlines.
+
+    Mesoregion boundaries are created by dissolving municipality polygons
+    on meso_key, producing a unified boundary per mesoregion.
+    """
+    gdf = load_production_geojson()
+    gdf["geometry"] = gdf["geometry"].buffer(0)
+    meso_gdf = gdf.dissolve(by="meso_key", aggfunc="sum").reset_index()
+
+    meso_gdf = meso_gdf[meso_gdf["meso_key"].isin(MESOREGIONS)].copy()
+
+    lons = []
+    lats = []
+    for geom in meso_gdf.geometry:
+        if geom.geom_type == "MultiPolygon":
+            coords = [list(p.exterior.coords) for p in geom.geoms]
+        else:
+            coords = [list(geom.exterior.coords)]
+        for ring in coords:
+            lons.append([c[0] for c in ring] + [None])
+            lats.append([c[1] for c in ring] + [None])
+
+    lons_flat = [x for sub in lons for x in sub]
+    lats_flat = [x for sub in lats for x in sub]
+
+    return go.Scattermapbox(
+        lon=lons_flat,
+        lat=lats_flat,
+        mode="lines",
+        line=dict(color="rgba(144,238,144,0.7)", width=2),
+        hoverinfo="skip",
+        showlegend=False,
+        name="Mesoregion boundaries",
+    )
+
+
+def municipality_count_table() -> go.Figure:
+    """Plotly table of mesoregions with unique ERA5 grid cells and production stats."""
+    gdf = load_production_geojson()
+    gdf = gdf.to_crs(gdf.estimate_utm_crs())
+    gdf["centroid"] = gdf.geometry.centroid
+    gdf = gdf.to_crs("EPSG:4326")
+    gdf["era5_lat"] = (gdf["centroid"].y * 4).round() / 4
+    gdf["era5_lon"] = (gdf["centroid"].x * 4).round() / 4
+    gdf["era5_cell"] = gdf["era5_lat"].astype(str) + "_" + gdf["era5_lon"].astype(str)
+
+    stats = (
+        gdf.groupby("meso_key")
+        .agg(
+            era5_cells=("era5_cell", "nunique"),
+            production_tonnes=("production_of_arabica_coffee_tonnes_2018", "sum"),
+        )
+        .reset_index()
+    )
+    total_production = stats["production_tonnes"].sum()
+    stats["pct"] = stats["production_tonnes"] / total_production * 100
+
+    stats["meso_name"] = stats["meso_key"].map(
+        {k: v["meso_name"] for k, v in MESOREGIONS.items()}
+    )
+    stats["state"] = stats["meso_key"].map(
+        {k: v["state_name"].title() for k, v in MESOREGIONS.items()}
+    )
+
+    stats = stats.dropna(subset=["meso_name"]).sort_values(
+        "production_tonnes", ascending=False
+    )
+
+    fig = go.Figure(
+        data=[
+            go.Table(
+                header=dict(
+                    values=[
+                        "Mesoregion",
+                        "State",
+                        "Open-Meteo points",
+                        "Production (t)",
+                        "% of national",
+                    ],
+                    fill_color="#4a3728",
+                    font=dict(color="#faf6f0", size=13),
+                    align="left",
+                    height=32,
+                ),
+                cells=dict(
+                    values=[
+                        stats["meso_name"],
+                        stats["state"],
+                        stats["era5_cells"],
+                        stats["production_tonnes"].apply(lambda x: f"{x:,.0f}"),
+                        stats["pct"].apply(lambda x: f"{x:.1f}%"),
+                    ],
+                    fill_color=[
+                        ["#f0ebe3" if i % 2 == 0 else "#faf6f0" for i in range(len(stats))]
+                    ]
+                    * 5,
+                    font=dict(color="#4a3728", size=12),
+                    align="left",
+                    height=28,
+                ),
+            )
+        ]
+    )
+    fig.update_layout(
+        title="Mesoregion Weather Aggregation: Unique ERA5 0.25° Grid Cells per Mesoregion",
+        height=min(40 + 28 * len(stats), 700),
+        margin={"r": 10, "t": 40, "l": 10, "b": 10},
     )
     return _apply_theme(fig)
 
